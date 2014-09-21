@@ -604,7 +604,7 @@ impl C {
 
 This is a desugaring operation that transcludes method definitions. Given `use
 FIELDPATH {..}`, the syntax tree is modified such that references to `self.PATH`
-are modified to `self.FIELDPATH.PAHT`.
+are modified to `self.FIELDPATH.PATH`.
 
 #### Trait composition
 

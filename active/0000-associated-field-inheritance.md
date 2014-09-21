@@ -443,15 +443,15 @@ Under this proposal, the following declaration:
 
 ```
 struct A { 
-      a: uint, 
-      b: uint
+   a: uint, 
+   b: uint
 }
 
 struct C { 
-    x: uint, 
-    parent: A, 
-    use parent {..}, 
-    c: uint
+   x: uint, 
+   parent: A, 
+   use parent {..}, 
+   c: uint
 }
 ```
 
@@ -459,32 +459,32 @@ Would be equivalent to:
 
 ```
 struct A {
-    a: uint,
-    b: uint
+   a: uint,
+   b: uint
 }
 
 struct C {
-    x: uint,
-    parent: A,
-    c: uint
+   x: uint,
+   parent: A,
+   c: uint
 }
 ```
 
-But with the additional property that where `c:C`, `c.a` and `c.b` would desugar
-to `c.parent.a` and `c.parent.b`. It should be observed that the use statement
-is a no-op in terms of the field declarations.
+But with the additional property that where `c:C`, `c.a` and `c.b` would
+desugar to `c.parent.a` and `c.parent.b`. It should be observed that the use
+statement is a no-op in terms of the field declarations.
 
 Note that `use parent {..}` does not necessarily have to strictly follow the
-field it references. 
+field it references.
 
 For the purpose of maintaining forwards compatibility, this definition:
 
 ```
 struct C { 
-    parent: A, 
-    x: uint, 
-    c: uint,
-    use parent {..}
+   parent: A, 
+   x: uint, 
+   c: uint,
+   use parent {..}
 }
 ```
 
@@ -492,14 +492,13 @@ Should be equivalent to:
 
 ```
 struct C {
-    x: uint,
-    c: uint,
-    parent: A
+   x: uint,
+   c: uint,
+   parent: A
 }
 ```
 
-This would permit future extension of the feature to modify layout, should that
-be explored.
+This would permit future extension of the feature to modify layout.
 
 ### Field composition sugar Motivation
 
@@ -535,18 +534,24 @@ transclusion of all fields. The feature is more extensible and in line with the
 This author is not familiar enough with Rust compiler internals to precisely
 state these details. An attempt will be made to describe the design criteria.
 
-The grammar for struct fields is extended with the production rule for `use PATH
-{..}`.
+The grammar for struct fields is extended with the production rule for `use
+PATH {..}`.
 
 This line creates a desugaring rule for accessing members of the struct, such
 that the fields of `PATH` may be accessed without specifying `PATH`.
 
 As per **RFC #250**, if the referenced struct is generic all type arguments
-would still need to be applied. This is because the production rule added above
-is a no-op, as it only creates the aliases fields. 
+would still need to be applied. The new production rule does not specify the
+type arguments, which would still need to be specified for the field referenced
+by `PATH`.
 
-**Note**: Features below are proposed that would require altering the desugaring
-such that 
+**Note**: Features below are proposed that would require altering the
+desugaring such that the implementation might change without semantic changes.
+For example, the hypothetical future extension of **Layout specification** and
+exclusion of fields would require that `c.parent.a` become an alias for `c.a`,
+and `c.parent` may become an invalid identifier on its own. These future
+extensions are illustrative only, and this RFC does not require their
+implementation.
 
 ### Field composition sugar Drawbacks
 
@@ -692,6 +697,50 @@ powerful extensions that may be considered independently.
    
    Bringing the members in as public. When used with selective composition, `use
    parent {pub a, ..}` would set private not all explicitly named fields.
+
+ * **Nested composition**, as in `use parent.second_parent {..}`
+
+   This would create aliases for a field of a struct that is itself a field of
+   the operative struct, such that given:
+
+   ```
+   struct A { 
+      a: uint
+   }
+
+   struct BA {
+      parent: A,
+      b: uint
+   }
+
+   struct Qux {
+      ba: BA;
+      use ba {..};
+      use ba.parent {..};
+   }
+   ```
+
+   And a value `q: Qux`, the following identifiers would be valid: `q.parent`,
+   `q.b`, `q.a`. An alternative implementation hierarchy would be:
+
+   ```
+   struct A { 
+      a: uint
+   }
+
+   struct BA {
+      parent: A,
+      use parent {..},
+      b: uint
+   }
+
+   struct Qux {
+      ba: BA,
+      use ba {..}
+   }
+   ```
+
+   Which would be semantically equivalent to previous implementation.
 
 ## Explicitly callable default method impls
 

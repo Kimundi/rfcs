@@ -687,7 +687,7 @@ powerful extensions that may be considered independently.
    ```
 
  * **Except composition** as a subset of selective composition and layout
-   specification, as in: `use pub parent {..} except {a}`
+   specification, as in: `use parent {..} except {a}`
 
    This would remove certain fields from composition, making it an error to
    attempt `c.a` or `c.parent.a`. This is a subset of layout specification,

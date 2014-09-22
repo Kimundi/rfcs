@@ -431,76 +431,316 @@ The user facing complexity could possibly be hidden away by integrating the conc
 
 ### Field composition sugar Summary
 
-Add syntax for reusing the fields of an struct in another structs definition, without any additional semantic meaning beyond that:
+Add syntax for reusing a struct in another structs definition, with the ability
+to opt-in to individual components of another struct. This feature may be
+considered part of a larger set of features. The proposed name for that set of
+features is **Struct composition**.
+
+This is an alternative proposal to [RFC #250](https://github.com/rust-
+lang/rfcs/pull/250).
+
+Under this proposal, the following declaration:
+
+```
+struct A { 
+   a: uint, 
+   b: uint
+}
+
+struct C { 
+   x: uint, 
+   parent: A, 
+   use parent {..}, 
+   c: uint
+}
+```
+
+Would be equivalent to:
 
 ```
 struct A {
-    a: uint,
-    b: uint,
+   a: uint,
+   b: uint
 }
+
 struct C {
    x: uint,
-   ..A,
+   parent: A,
+   c: uint
+}
+```
+
+But with the additional property that where `c:C`, `c.a` and `c.b` would
+desugar to `c.parent.a` and `c.parent.b`. It should be observed that the use
+statement is a no-op in terms of the field declarations.
+
+Note that `use parent {..}` does not necessarily have to strictly follow the
+field it references.
+
+For the purpose of maintaining forwards compatibility, this definition:
+
+```
+struct C { 
+   parent: A, 
+   x: uint, 
    c: uint,
+   use parent {..}
 }
 ```
 
-would be equivalent to
+Should be equivalent to:
 
 ```
-struct A {
-    a: uint,
-    b: uint,
-}
 struct C {
-    x: uint,
-    a: uint,
-    b: uint,
-    c: uint,
+   x: uint,
+   c: uint,
+   parent: A
 }
 ```
+
+This would permit future extension of the feature to modify layout.
 
 ### Field composition sugar Motivation
 
-Today, if you want different types to share a common field sub structure, there are two options:
-- Copying the fields of the common struct into your struct, violating the DRY principle.
-- Embedding a struct with common fields as a field in your struct, allowing you to only need to mention the type name in your struct definition. But this requires you to prefix all access to them with that field name, and gives you more than asked for by allowing you to access the common structs impls.
+This feature appears to satisfy the Servo teams' needs, per **RFC #250**.
+Subjectively, the syntax is more extensible. If **Field composition** is
+implemented, the `..` syntax will be difficult to remove from the language
+should it be decided to extend it.
 
-Field composition sugar fills the use case between those two options by allowing to share structure directly, without embedding of another type as a named field.
+The motivation of **RFC #250** was specified as as:
+
+> Today, if you want different types to share a common field sub structure,
+> there are two options:
+> 
+> - Copying the fields of the common struct into your struct, violating the DRY
+>   principle.
+> 
+> - Embedding a struct with common fields as a field in your struct, allowing
+>   you to only need to mention the type name in your struct definition. But
+>   this requires you to prefix all access to them with that field name, and
+>   gives you more than asked for by allowing you to access the common structs
+>   impls.
+> 
+> Field composition sugar fills the use case between those two options
+> by allowing to share structure directly, without embedding of another type
+> as a named field.
+
+This addresses this use case without limiting the feature to strictly
+transclusion of all fields. The feature is more extensible and in line with the
+`use` keyword as used elsewhere.
 
 ### Field composition sugar Detailed Design
 
-The grammar for struct fields is extended with the production rule for `.. PATH`
+This author is not familiar enough with Rust compiler internals to precisely
+state these details. An attempt will be made to describe the design criteria.
 
-During compilation, every use of that syntax basically desugars to a flat list of fields defined by the referenced struct.
+The grammar for struct fields is extended with the production rule for `use
+PATH {..}`.
 
-If the referenced struct is generic, it needs to have all type arguments applied. It then desugars to fields with the original type arguments substituted with the applied ones:
+This line creates a desugaring rule for accessing members of the struct, such
+that the fields of `PATH` may be accessed without specifying `PATH`.
 
-```
-struct X<T, U> {
-    x: T
-    y: U
-}
+As per **RFC #250**, if the referenced struct is generic all type arguments
+would still need to be applied. The new production rule does not specify the
+type arguments, which would still need to be specified for the field referenced
+by `PATH`.
 
-struct Z<T> {
-    ..X<T, uint>
-}
-
-/* desugars to: */
-
-struct Z<T> {
-    x: T,
-    y: uint
-}
-```
+**Note**: Features below are proposed that would require altering the
+desugaring such that the implementation might change without semantic changes.
+For example, the hypothetical future extension of **Layout specification** and
+exclusion of fields would require that `c.parent.a` become an alias for `c.a`,
+and `c.parent` may become an invalid identifier on its own. These future
+extensions are illustrative only, and this RFC does not require their
+implementation.
 
 ### Field composition sugar Drawbacks
 
-More syntax to keep track of
+As stated above, this author may not understand the full impact of this feature
+proposal on Rust compiler internals, as such this proposal may be inapplicable
+or too difficult to implement. Further, this feature imposes a higher
+implementation cost for its first sub-feature, **Field composition**, than the
+equivalently named feature proposed by **RFC #250**.
+
+This feature at the very least requires more work on the compiler internals, as
+it cannot be implemented by solely transcluding the contents of a `struct`
+definition inside another.
+
+This author cannot speculate as to whether the type system is made more
+complicated
 
 ### Field composition sugar Alternatives
 
-Rely on the two existing options
+This is an alternative to a feature called **Field composition** proposed in
+**RFC #250**.
+
+### Field composition sugar Extensions
+
+This proposal permits extension with similar syntax to other domains. Several
+that might warrant consideration include:
+
+#### Method composition
+
+Given:
+
+```
+impl A { 
+    fn sum(&self) -> uint { 
+        self.a + self.b;
+    }
+}
+
+impl C { 
+    use parent {..};
+}
+```
+
+The `impl C` is equivalent to:
+
+```
+impl C {
+    fn sum(&self) -> uint { self.parent.a + self.parent.b; }
+}
+```
+
+This is a desugaring operation that transcludes method definitions. Given `use
+FIELDPATH {..}`, the syntax tree is modified such that references to `self.PATH`
+are modified to `self.FIELDPATH.PATH`.
+
+#### Trait composition
+
+Given:
+
+```
+trait Mul {
+    fn mul(&self) -> uint;
+}
+
+impl Mul for A {
+    fn mul(&self) -> uint {
+        self.a * self.b;
+    }
+}
+
+impl Mul for C {
+    use parent {..};
+}
+```
+
+The `impl Mul for C` would be equivalent to:
+
+```
+impl Mul for C { 
+    fn mul(&self) -> uint {
+        self.parent.a * self.parent.b;
+    }
+}
+```
+
+This is a desugaring operation that transcludes trait method definitions. Given
+`use FIELDPATH {..}`, the syntax tree is modified such that references to
+`self.PATH` are modified to `self.FIELDPATH.PATH`.
+
+#### Further extensions
+
+The syntax above includes `{..}` to serve as a stepping stone to allow more
+powerful extensions that may be considered independently.
+
+ * **Selective composition**, as in: `use parent {a}`
+  
+   This would allow selective inclusion of desugaring aliases (for fields) and
+   definition transclusion (for methods).
+
+ * **Renaming composition** as a subset of selective composition, as in: `use
+   pub parent {a as y}`
+
+   This would allow renaming paths to avoid overlap. This feature would permit
+   `c.y` to be an alias for `c.parent.a`. For methods, this would permit
+   renaming the method. For trait methods, this would be forbidden.
+
+ * **Hiding composition** as a subset of selective composition, as in: `use
+   pub parent {..} hiding {a}`
+
+   This would allow hiding elements but still permitting explicit access, as in
+   `c.parent.a`. This only prevents the alias for `c.a` from being created. For
+   methods this would permit overriding the included definition.
+
+ * **Layout specification** as a subset of selective composition, would allow
+   the use declaration to alter the layout of the struct.
+
+   This feature would alter the semantics of **Field composition**. Instead of
+   implementing the used struct as a field, its definition is transcluded
+   and `c.a` directly accesses these fields `c.parent.a` becomes an
+   alias for any renamed fields.
+
+   **This would make the identifier `c.parent` an error when used.** This is
+   because it would not be possible to take a reference to `c.parent` as a
+   contiguous block of memory.
+
+   ```
+   struct C {
+       x: uint,
+       parent: A,
+       use parent {a},
+       c: uint
+       use parent {..},
+   }
+   ```
+
+ * **Except composition** as a subset of selective composition and layout
+   specification, as in: `use parent {..} except {a}`
+
+   This would remove certain fields from composition, making it an error to
+   attempt `c.a` or `c.parent.a`. This is a subset of layout specification,
+   as it requires that fields be selectively transcluded from the used struct.
+
+ * **Visibility changing composition**, as in: `use parent {pub ..}`
+   
+   Bringing the members in as public. When used with selective composition, `use
+   parent {pub a, ..}` would set private not all explicitly named fields.
+
+ * **Nested composition**, as in `use parent.second_parent {..}`
+
+   This would create aliases for a field of a struct that is itself a field of
+   the operative struct, such that given:
+
+   ```
+   struct A { 
+      a: uint
+   }
+
+   struct BA {
+      parent: A,
+      b: uint
+   }
+
+   struct Qux {
+      ba: BA;
+      use ba {..};
+      use ba.parent {..};
+   }
+   ```
+
+   And a value `q: Qux`, the following identifiers would be valid: `q.parent`,
+   `q.b`, `q.a`. An alternative implementation hierarchy would be:
+
+   ```
+   struct A { 
+      a: uint
+   }
+
+   struct BA {
+      parent: A,
+      use parent {..},
+      b: uint
+   }
+
+   struct Qux {
+      ba: BA,
+      use ba {..}
+   }
+   ```
+
+   Which would be semantically equivalent to previous implementation.
 
 ## Explicitly callable default method impls
 
